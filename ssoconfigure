@@ -1,0 +1,97 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import urllib
+import httplib
+from urlparse import urlparse
+
+def main():
+	module = AnsibleModule(
+	    argument_spec = dict(
+                server_url           = dict(default=None),
+                deployment_uri       = dict(default=None),
+                base_dir             = dict(default=None),
+                locale               = dict(default='en_US'),
+                platform_locale      = dict(default='en_US'),
+                am_enc_key           = dict(default=None),
+                admin_pwd            = dict(default=None),
+                amldapuserpasswd     = dict(default=None),
+                cookie_domain        = dict(default=None),
+                data_store           = dict(default='embedded', choices=['embedded','dirServer']),
+                directory_ssl        = dict(default='SIMPLE', choices=['SIMPLE','SSL']),
+                directory_server     = dict(default=None),
+                directory_port       = dict(default=None),
+                directory_admin_port = dict(default=None),
+                directory_jmx_port   = dict(default=None),
+                root_suffix          = dict(default=None),
+                ds_dirmgrdn          = dict(default=None),
+                ds_dirmgrpasswd      = dict(default=None),
+                acceptlicense        = dict(default=False, type='bool')
+		#name                 = dict(required=True),
+		#enabled              = dict(required=True, choices=BOOLEANS),
+		#something            = dict(aliases=['whatever']),
+		#state                = dict(default='present', choices=['present', 'absent']),
+	    ),
+	    supports_check_mode=True,
+	)
+
+        server_url = module.params['server_url']
+        deployment_uri = module.params['deployment_uri']
+        base_dir = module.params['base_dir']
+        locale = module.params['locale']
+        platform_locale = module.params['platform_locale']
+        am_enc_key = module.params['am_enc_key']
+        admin_pwd = module.params['admin_pwd']
+        amldapuserpasswd = module.params['amldapuserpasswd']
+        cookie_domain = module.params['cookie_domain']
+        data_store = module.params['data_store']
+        directory_ssl = module.params['directory_ssl']
+        directory_server = module.params['directory_server']
+        directory_port = module.params['directory_port']
+        directory_admin_port = module.params['directory_admin_port']
+        directory_jmx_port = module.params['directory_jmx_port']
+        root_suffix = module.params['root_suffix']
+        ds_dirmgrdn = module.params['ds_dirmgrdn']
+        ds_dirmgrpasswd = module.params['ds_dirmgrpasswd']
+        acceptlicense = module.params['acceptlicense']
+
+        cparams={}
+        cparams['SERVER_URL']=server_url.decode('utf8')
+        cparams["BASE_DIR"]=base_dir.decode('utf8')
+        cparams["locale"]=locale.decode('utf8')
+        cparams["PLATFORM_LOCALE"]=platform_locale.decode('utf8')
+        cparams["AM_ENC_KEY"]=am_enc_key.decode('utf8')
+        cparams["ADMIN_PWD"]=admin_pwd.decode('utf8')
+        cparams["ADMIN_CONFIRM_PWD"]=admin_pwd.decode('utf8')
+        cparams["AMLDAPUSERPASSWD"]=amldapuserpasswd.decode('utf8')
+        cparams["AMLDAPUSERPASSWD_CONFIRM"]=amldapuserpasswd.decode('utf8')
+        cparams["COOKIE_DOMAIN"]=cookie_domain.decode('utf8')
+        cparams["DATA_STORE"]=data_store.decode('utf8')
+        cparams["DIRECTORY_SSL"]=directory_ssl.decode('utf8')
+        cparams["DIRECTORY_SERVER"]=directory_server.decode('utf8')
+        cparams["DIRECTORY_PORT"]=directory_port.decode('utf8')
+        cparams["DIRECTORY_ADMIN_PORT"]=directory_admin_port.decode('utf8')
+        cparams["DIRECTORY_JMX_PORT"]=directory_jmx_port.decode('utf8')
+        cparams["ROOT_SUFFIX"]=root_suffix.decode('utf8')
+        cparams["DS_DIRMGRDN"]=ds_dirmgrdn.decode('utf8')
+        cparams["DS_DIRMGRPASSWD"]=ds_dirmgrpasswd.decode('utf8')
+        cparams["acceptLicense"]=acceptlicense
+
+        body=urllib.urlencode(cparams)
+        openssoUrl = server_url.rstrip('/') + '/' + deployment_uri.lstrip('/').rstrip('/') + '/config/configurator'
+
+        # Post to the server
+        urlparts = urlparse(openssoUrl)
+        connection = httplib.HTTPConnection(urlparts.netloc.rstrip(':'+`urlparts.port`), urlparts.port)
+        connection.set_debuglevel(1)
+        headers = {"Content-type": "application/x-www-form-urlencoded", "Content-Length": len(body)}
+        connection.request("POST", '/' + deployment_uri.lstrip('/').rstrip('/') + '/config/configurator', body, headers)
+        response = connection.getresponse()
+        data = response.read()
+        connection.close();
+        
+        print json.dumps({ "openssoURL" : openssoUrl, "body" : body, "netloc" : urlparts.netloc.rstrip(':'+`urlparts.port`), "port" : urlparts.port, "response status" : response.status, "response" : data })
+
+# Import module snippet
+from ansible.module_utils.basic import *
+main()
