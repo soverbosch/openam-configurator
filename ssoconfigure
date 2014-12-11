@@ -3,7 +3,33 @@
 
 import urllib
 import httplib
+import requests
+import threading
 from urlparse import urlparse
+
+class myThread (threading.Thread):
+    def __init__(self, openAMUrl, name):
+        threading.Thread.__init__(self)
+        self.openAMUrl = openAMUrl
+        self.name = name
+
+    def run(self):
+        readStatus(self.openAMUrl)
+
+    def exit(self):
+        print "Exiting"
+
+
+def readStatus( openAMUrl ):
+	retry = 0
+	while retry <= 1:
+		retry += 1
+		response = requests.request('GET', openAMUrl + '/setup/setSetupProgress?mode=text', allow_redirects=False)
+		if response.status_code == requests.codes.ok:
+			for line in response.iter_content(chunk_size=512):
+				print line
+		response.close()
+
 
 def main():
 	module = AnsibleModule(
@@ -27,10 +53,6 @@ def main():
                 ds_dirmgrdn          = dict(default=None),
                 ds_dirmgrpasswd      = dict(default=None),
                 acceptlicense        = dict(default=False, type='bool')
-		#name                 = dict(required=True),
-		#enabled              = dict(required=True, choices=BOOLEANS),
-		#something            = dict(aliases=['whatever']),
-		#state                = dict(default='present', choices=['present', 'absent']),
 	    ),
 	    supports_check_mode=True,
 	)
@@ -80,17 +102,22 @@ def main():
         body=urllib.urlencode(cparams)
         openssoUrl = server_url.rstrip('/') + '/' + deployment_uri.lstrip('/').rstrip('/') + '/config/configurator'
 
-        # Post to the server
-        urlparts = urlparse(openssoUrl)
-        connection = httplib.HTTPConnection(urlparts.netloc.rstrip(':'+`urlparts.port`), urlparts.port)
-        connection.set_debuglevel(1)
-        headers = {"Content-type": "application/x-www-form-urlencoded", "Content-Length": len(body)}
-        connection.request("POST", '/' + deployment_uri.lstrip('/').rstrip('/') + '/config/configurator', body, headers)
-        response = connection.getresponse()
-        data = response.read()
-        connection.close();
+        # Read status in thread
+	try:
+		thread = myThread( server_url.rstrip('/') + '/' + deployment_uri.lstrip('/').rstrip('/'), 'progress' )
+		thread.start()
+	except:
+		module.fail_json(msg='Configuration failed, unable to start thread')
         
-        print json.dumps({ "openssoURL" : openssoUrl, "body" : body, "netloc" : urlparts.netloc.rstrip(':'+`urlparts.port`), "port" : urlparts.port, "response status" : response.status, "response" : data })
+        # Post to the server
+        headers = {"Content-type": "application/x-www-form-urlencoded", "Content-Length": len(body), 'cache-control': 'no-cache'}
+        response = requests.post(openssoUrl, data=body, headers=headers, stream=True)
+	response.close()
+
+	if response.status_code == requests.codes.ok:
+		module.exit_json(changed=True, msg=response.text)
+	else:
+		module.fail_json(msg='Configuration failed!' + response.content)
 
 # Import module snippet
 from ansible.module_utils.basic import *
