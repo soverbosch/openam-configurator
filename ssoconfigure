@@ -79,6 +79,9 @@ def main():
         ds_dirmgrpasswd = module.params['ds_dirmgrpasswd']
         acceptlicense = module.params['acceptlicense']
 
+	if not acceptlicense:
+		module.fail_json(msg='You should accept the license!')
+
         cparams={}
         cparams['SERVER_URL']=server_url.decode('utf8')
         cparams["BASE_DIR"]=base_dir.decode('utf8')
