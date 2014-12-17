@@ -4,126 +4,393 @@
 # (c) 2014, Sarris Overbosch <soverbosch@hotmail.com>
 
 import urllib
-import httplib
 import requests
 import threading
-from urlparse import urlparse
+import os
+from ansible.module_utils.basic import *
 
-class myThread (threading.Thread):
-    def __init__(self, openAMUrl, name):
+
+DOCUMENTATION = '''
+---
+module: ssoconfigure
+version_added: "0.2"
+author: Sarris Overbosch
+short_description: Configure OpenAM with basic configuration.
+description:
+   - This module does the same as what ssoconfigurator does, configuring OpenAM for basic usage.
+options:
+  server_url:
+    description:
+      - URL to the web container where you want OpenAM to run, such as http://openam.example.com:8080.
+    required: true
+  deployment_uri:
+    description:
+      - URI where you want to deploy OpenAM on the web container, such as /openam.
+    required: true
+  base_dir:
+    description:
+      - Configuration directory where OpenAM stores files and embedded configuration directory servers,
+      such as $HOME/openam.
+    required: true
+  locale:
+    description:
+      - The user locale, such as en_GB.
+    required: true, but defaults to en_US
+  platform_locale:
+    description:
+      - The locale of the OpenAM server, such as en_US.
+    required: true, but defaults to en_US
+  am_enc_key:
+    description:
+      - The password encryption key, which must be the same on all servers in a multi-server installation, such as
+      O6QWwHPO4os+zEz3Nqn/2daAYWyiFE32. If left blank, installing OpenAM generates a random password encryption key
+      that you can later view in OpenAM console under Configuration > Servers and Sites > Server Name > Security.
+    required: false
+  admin_pwd:
+    description:
+      - Password of the OpenAM administrator user amadmin, which must be at least 8 characters in length and must match
+      that of other servers in a multi server deployment.
+    required: true
+  amldapuserpasswd:
+    description:
+      - Password of the default policy agent UrlAccessAgent, which must be at least 8 characters in length and must not
+      be the same as the value of ADMIN_PWD.
+    required: true
+  cookie_domain:
+    description:
+      - Name of the trusted DNS domain OpenAM returns to a browser when it grants a session ID to a user,
+      such as .example.com.
+    required: true
+  data_store:
+    description:
+      - Type of the configuration data store. The value embedded means set up OpenAM with an embedded, OpenDJ based
+      configuration store. The value dirServer means an external directory server, such as OpenDJ, or Sun Java System
+      Directory Server. If you set this to dirServer, and the configuration store contains the configuration of other
+      OpenAM servers, then the server is added to the existing multi server installation.
+    required: true
+  directory_ssl:
+    description:
+      - To use LDAP without SSL, set this to SIMPLE. To use LDAP with SSL, set this to SSL.
+    required: true
+  directory_server:
+    description:
+      - Fully qualified domain name of the configuration store directory server host, such as opendj.example.com.
+    required: true
+  directory_port:
+    description:
+      - LDAP or LDAPS port number for the configuration store directory server, such as 389 or 636.
+    required: true
+  directory_admin_port:
+    description:
+      - Administration port number for the configuration store directory server, such as 4444.
+    required: true
+  directory_jmx_port:
+    description:
+      - Java Management eXtension port number, such as 1689, used with the OpenDJ embedded configuration store.
+    required: true
+  root_suffix:
+    description:
+      - Root suffix distinguished name (DN) for the configuration store, such as o=openam.
+    required: true
+  ds_dirmgrdn:
+    description:
+      - Distinguished name of the directory manager of the configuration store, such as cn=Directory Manager.
+    required: true
+  ds_dirmgrpasswd:
+    description:
+      - Password for the directory manager of the configuration store.
+    required: true
+  userstore_type:
+    description:
+      - The type of directory server used. Valid values include the following:
+            LDAPv3ForOpenDS: ForgeRock 0penDJ or Sun OpenDS
+            LDAPv3ForAD: Active Directory with host and port settings
+            LDAPv3ForADDC: Active Directory with a Domain Name setting
+            LDAPv3ForADAM: Active Directory Application Mode
+            LDAPv3ForODSEE: Sun Java System Directory Server
+            LDAPv3ForTivoli: IBM Tivoli Directory Server.
+    required: false
+  userstore_ssl:
+    description:
+      - To use LDAP without SSL, set this to SIMPLE. To use LDAP with SSL, set this to SSL..
+    required: true
+  usertore_domainname:
+    description:
+      - If USERSTORE_TYPE is LDAPv3ForADDC, you set this to the Active Directory Domain Name, such as ad.example.com,
+      and then set only the USERSTORE_SSL, USERSTORE_MGRDN, and USERSTORE_PASSWD additional parameters. This lets
+      Active Directory use DNS to retrieve service locations. Otherwise, do not use!
+    required: false
+  userstore_host:
+    description:
+      - Fully qualified domain name of the user data store directory server, such as opendj.example.com.
+    required: true
+  userstore_port:
+    description:
+      - Port number of the user data store. Default for LDAP is 389, and for LDAP over SSL is 636.
+    required: true
+  userstore_suffix:
+    description:
+      - Root suffix distinguished name for the user data in the directory, such as dc=example,dc=com.
+    required: true
+  userstore_mgrdn:
+    description:
+      - Distinguished name of the directory manager of the user data store, such as cn=Directory Manager.
+    required: true
+  userstore_passwd:
+    description:
+      - Password for the directory manager of the user data store.
+    required: true
+  lb_site_name:
+    description:
+      - The name of the OpenAM site.
+    required: true
+  lb_primary_url:
+    description:
+      - The load balancer URL for the site, such as http://lb.example.com:80/openam.
+    required: true
+  lb_session_ha_sfo:
+    description:
+      - Whether to enable session persistence and failover for the site. Default: false.
+    required: false
+  ds_emb_repl_flag:
+    description:
+      - Enable use of the embedded configuration store by setting this parameter to embReplFlag, only if the DATA_STORE
+      parameter is set to embedded. Use the other DS_EMB_REPL* parameters in this section to set up configuration store
+      data replication.
+    required: true
+  ds_emb_repl_replport1:
+    description:
+      - Replication port number for the new OpenAM server you are installing, such as 58989
+  ds_emb_repl_host2
+    description:
+      - Host name of an existing OpenAM server housing the configuration store directory server with which to replicate,
+      such as openam1.example.com
+    required: true
+  ds_emb_repl_adminport2
+    description:
+      - Administration port number for the configuration store directory server used by the existing OpenAM server, such
+      as 4444
+    required: true
+  ds_emb_repl_replport2
+    description:
+      - Replication port number for the configuration store directory server used by the existing OpenAM server,
+      such as 50899
+    required: true
+  existingserverid:
+    description:
+      - Full URL of the existing OpenAM server, such as http://server1.example.com:8080/openam.
+    required: false
+  acceptlicense:
+    description:
+      - Optional boolean property that can be set to always auto-accept the software license agreement and suppress the
+      display of the license acceptance screen to the user.
+    required: true
+'''
+
+EXAMPLES = '''
+'''
+
+
+class ProgressThread (threading.Thread):
+    def __init__(self, openamurl, threadname):
         threading.Thread.__init__(self)
-        self.openAMUrl = openAMUrl
-        self.name = name
+        self.openAMUrl = openamurl
+        self.name = threadname
 
     def run(self):
-        readStatus(self.openAMUrl)
+        readstatus(self.openAMUrl)
 
+    @staticmethod
     def exit(self):
         print "Exiting"
 
 
-def readStatus( openAMUrl ):
-	retry = 0
-	while retry <= 1:
-		retry += 1
-		response = requests.request('GET', openAMUrl + '/setup/setSetupProgress?mode=text', allow_redirects=False)
-		if response.status_code == requests.codes.ok:
-			for line in response.iter_content(chunk_size=512):
-				print line
-		response.close()
+def readstatus(openamurl):
+    retry = 0
+    while retry <= 1:
+        retry += 1
+        response = requests.request('GET', openamurl + '/setup/setSetupProgress?mode=text', allow_redirects=False)
+        if response.status_code == requests.codes.ok:
+            for line in response.iter_content(chunk_size=512):
+                print line
+        response.close()
 
 
 def main():
-	module = AnsibleModule(
-	    argument_spec = dict(
-                server_url           = dict(default=None),
-                deployment_uri       = dict(default=None),
-                base_dir             = dict(default=None),
-                locale               = dict(default='en_US'),
-                platform_locale      = dict(default='en_US'),
-                am_enc_key           = dict(default=None),
-                admin_pwd            = dict(default=None),
-                amldapuserpasswd     = dict(default=None),
-                cookie_domain        = dict(default=None),
-                data_store           = dict(default='embedded', choices=['embedded','dirServer']),
-                directory_ssl        = dict(default='SIMPLE', choices=['SIMPLE','SSL']),
-                directory_server     = dict(default=None),
-                directory_port       = dict(default=None),
-                directory_admin_port = dict(default=None),
-                directory_jmx_port   = dict(default=None),
-                root_suffix          = dict(default=None),
-                ds_dirmgrdn          = dict(default=None),
-                ds_dirmgrpasswd      = dict(default=None),
-                acceptlicense        = dict(default=False, type='bool')
-	    ),
-	    supports_check_mode=True,
-	)
+    module = AnsibleModule(
+        argument_spec=dict(
+            server_url              = dict(default=None, required=True),
+            deployment_uri          = dict(default=None, required=True),
+            base_dir                = dict(default=None, required=True),
+            locale                  = dict(default='en_US'),
+            platform_locale         = dict(default='en_US'),
+            am_enc_key              = dict(default=None),
+            admin_pwd               = dict(default=None, required=True),
+            amldapuserpasswd        = dict(default=None, required=True),
+            cookie_domain           = dict(default=None, required=True),
+            acceptlicense           = dict(default=False, type='bool'),
 
-        server_url = module.params['server_url']
-        deployment_uri = module.params['deployment_uri']
-        base_dir = module.params['base_dir']
-        locale = module.params['locale']
-        platform_locale = module.params['platform_locale']
-        am_enc_key = module.params['am_enc_key']
-        admin_pwd = module.params['admin_pwd']
-        amldapuserpasswd = module.params['amldapuserpasswd']
-        cookie_domain = module.params['cookie_domain']
-        data_store = module.params['data_store']
-        directory_ssl = module.params['directory_ssl']
-        directory_server = module.params['directory_server']
-        directory_port = module.params['directory_port']
-        directory_admin_port = module.params['directory_admin_port']
-        directory_jmx_port = module.params['directory_jmx_port']
-        root_suffix = module.params['root_suffix']
-        ds_dirmgrdn = module.params['ds_dirmgrdn']
-        ds_dirmgrpasswd = module.params['ds_dirmgrpasswd']
-        acceptlicense = module.params['acceptlicense']
+            data_store              = dict(default='embedded', choices=['embedded', 'dirServer']),
+            directory_ssl           = dict(default='SIMPLE', choices=['SIMPLE', 'SSL']),
+            directory_server        = dict(default=None, required=True),
+            directory_port          = dict(default=None, required=True),
+            directory_admin_port    = dict(default=None, required=True),
+            directory_jmx_port      = dict(default=None, required=True),
+            root_suffix             = dict(default=None, required=True),
+            ds_dirmgrdn             = dict(default=None, required=True),
+            ds_dirmgrpasswd         = dict(default=None, required=True),
 
-	if not acceptlicense:
-		module.fail_json(msg='You should accept the license!')
+            userstore_type          = dict(default=None, choices=['LDAPv3ForOpenDS', 'LDAPv3ForOpenDS', 'LDAPv3ForAD',
+                                                                  'LDAPv3ForADDC', 'LDAPv3ForADAM', 'LDAPv3ForODSEE',
+                                                                  'LDAPv3ForTivoli']),
+            userstore_ssl           = dict(default=None, choices=['SIMPLE', 'SSL']),
+            userstore_host          = dict(default=None),
+            userstore_port          = dict(default=None, type='int'),
+            userstore_suffix        = dict(default=None),
+            userstore_mgrdn         = dict(default='cn=Directory Manager'),
+            userstore_passwd        = dict(default=None),
+            userstore_domainname    = dict(default=None),
 
-        cparams={}
-        cparams['SERVER_URL']=server_url.decode('utf8')
-        cparams["BASE_DIR"]=base_dir.decode('utf8')
-        cparams["locale"]=locale.decode('utf8')
-        cparams["PLATFORM_LOCALE"]=platform_locale.decode('utf8')
-        cparams["AM_ENC_KEY"]=am_enc_key.decode('utf8')
-        cparams["ADMIN_PWD"]=admin_pwd.decode('utf8')
-        cparams["ADMIN_CONFIRM_PWD"]=admin_pwd.decode('utf8')
-        cparams["AMLDAPUSERPASSWD"]=amldapuserpasswd.decode('utf8')
-        cparams["AMLDAPUSERPASSWD_CONFIRM"]=amldapuserpasswd.decode('utf8')
-        cparams["COOKIE_DOMAIN"]=cookie_domain.decode('utf8')
-        cparams["DATA_STORE"]=data_store.decode('utf8')
-        cparams["DIRECTORY_SSL"]=directory_ssl.decode('utf8')
-        cparams["DIRECTORY_SERVER"]=directory_server.decode('utf8')
-        cparams["DIRECTORY_PORT"]=directory_port.decode('utf8')
-        cparams["DIRECTORY_ADMIN_PORT"]=directory_admin_port.decode('utf8')
-        cparams["DIRECTORY_JMX_PORT"]=directory_jmx_port.decode('utf8')
-        cparams["ROOT_SUFFIX"]=root_suffix.decode('utf8')
-        cparams["DS_DIRMGRDN"]=ds_dirmgrdn.decode('utf8')
-        cparams["DS_DIRMGRPASSWD"]=ds_dirmgrpasswd.decode('utf8')
-        cparams["acceptLicense"]=acceptlicense
+            ds_emb_repl_flag        = dict(default=None, choices=['embReplFlag']),
+            ds_emb_repl_replport1   = dict(default=None),
+            ds_emb_repl_host2       = dict(default=None),
+            ds_emb_repl_adminport2  = dict(default=None),
+            ds_emb_repl_replport2   = dict(default=None),
 
-        body=urllib.urlencode(cparams)
-        openssoUrl = server_url.rstrip('/') + '/' + deployment_uri.lstrip('/').rstrip('/') + '/config/configurator'
+            lb_site_name            = dict(default=None),
+            lb_primary_url          = dict(default=None),
+            lb_session_ha_sfo       = dict(default=False, type='bool'),
+            existingserverid        = dict(default=None)),
+        supports_check_mode=True,
+    )
 
-        # Read status in thread
-	try:
-		thread = myThread( server_url.rstrip('/') + '/' + deployment_uri.lstrip('/').rstrip('/'), 'progress' )
-		thread.start()
-	except:
-		module.fail_json(msg='Configuration failed, unable to start thread')
-        
-        # Post to the server
-        headers = {"Content-type": "application/x-www-form-urlencoded", "Content-Length": len(body), 'cache-control': 'no-cache'}
-        response = requests.post(openssoUrl, data=body, headers=headers, stream=True)
-	response.close()
+    server_url = module.params['server_url']
+    deployment_uri = module.params['deployment_uri']
+    base_dir = module.params['base_dir']
+    locale = module.params['locale']
+    platform_locale = module.params['platform_locale']
+    am_enc_key = module.params['am_enc_key']
+    admin_pwd = module.params['admin_pwd']
+    amldapuserpasswd = module.params['amldapuserpasswd']
+    cookie_domain = module.params['cookie_domain']
+    acceptlicense = module.params['acceptlicense']
 
-	if response.status_code == requests.codes.ok:
-		module.exit_json(changed=True, msg=response.text)
-	else:
-		module.fail_json(msg='Configuration failed!' + response.content)
+    data_store = module.params['data_store']
+    directory_ssl = module.params['directory_ssl']
+    directory_server = module.params['directory_server']
+    directory_port = module.params['directory_port']
+    directory_admin_port = module.params['directory_admin_port']
+    directory_jmx_port = module.params['directory_jmx_port']
+    root_suffix = module.params['root_suffix']
+    ds_dirmgrdn = module.params['ds_dirmgrdn']
+    ds_dirmgrpasswd = module.params['ds_dirmgrpasswd']
 
-# Import module snippet
-from ansible.module_utils.basic import *
+    userstore_type = module.params['userstore_type']
+    userstore_ssl = module.params['userstore_ssl']
+    userstore_host = module.params['userstore_host']
+    userstore_port = module.params['userstore_port']
+    userstore_suffix = module.params['userstore_suffix']
+    userstore_mgrdn = module.params['userstore_mgrdn']
+    userstore_passwd = module.params['userstore_passwd']
+    userstore_domainname = module.params['userstore_domainname']
+
+    ds_emb_repl_flag = module.params['ds_emb_repl_flag']
+    ds_emb_repl_replport1 = module.params['ds_emb_repl_replport1']
+    ds_emb_repl_host2 = module.params['ds_emb_repl_host2']
+    ds_emb_repl_adminport2 = module.params['ds_emb_repl_adminport2']
+    ds_emb_repl_replport2 = module.params['ds_emb_repl_replport2']
+
+    lb_site_name = module.params['lb_site_name']
+    lb_primary_url = module.params['lb_primary_url']
+    lb_session_ha_sfo = module.params['lb_session_ha_sfo']
+    existingserverid = module.params['existingserverid']
+
+
+    if not acceptlicense:
+        module.fail_json(msg='You should accept the license!')
+
+    formparams = dict(
+        SERVER_URL                  = server_url.decode('utf8'),
+        BASE_DIR                    = base_dir.decode('utf8'),
+        locale                      = locale.decode('utf8'),
+        PLATFORM_LOCALE             = platform_locale.decode('utf8'),
+        AM_ENC_KEY                  = am_enc_key.decode('utf8'),
+        ADMIN_PWD                   = admin_pwd.decode('utf8'),
+        ADMIN_CONFIRM_PWD           = admin_pwd.decode('utf8'),
+        AMLDAPUSERPASSWD            = amldapuserpasswd.decode('utf8'),
+        AMLDAPUSERPASSWD_CONFIRM    = amldapuserpasswd.decode('utf8'),
+        COOKIE_DOMAIN               = cookie_domain.decode('utf8'),
+        acceptLicense               = acceptlicense,
+
+        DATA_STORE                  = data_store.decode('utf8'),
+        DIRECTORY_SSL               = directory_ssl.decode('utf8'),
+        DIRECTORY_SERVER            = directory_server.decode('utf8'),
+        DIRECTORY_PORT              = directory_port.decode('utf8'),
+        DIRECTORY_ADMIN_PORT        = directory_admin_port.decode('utf8'),
+        DIRECTORY_JMX_PORT          = directory_jmx_port.decode('utf8'),
+        ROOT_SUFFIX                 = root_suffix.decode('utf8'),
+        DS_DIRMGRDN                 = ds_dirmgrdn.decode('utf8'),
+        DS_DIRMGRPASSWD             = ds_dirmgrpasswd.decode('utf8')
+    )
+
+    if not os.path.exists(base_dir):
+        module.fail_json('Configuration base directory ' + base_dir + ' does not exist.')
+
+    p = re.compile('^\.([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,3}$')
+    if not p.match(cookie_domain):
+        module.fail_json('Invalid cookie domain specified: ' + cookie_domain)
+
+    if userstore_type is not None:
+        if userstore_ssl is not None and userstore_host is not None and userstore_port is not None and \
+           userstore_suffix is not None and userstore_mgrdn is not None and userstore_passwd is not None:
+            formparams['USERSTORE_TYPE'] = userstore_type.decode('utf8')
+            formparams['USERSTORE_SSL'] = userstore_ssl.decode('utf8')
+            formparams['USERSTORE_MGRDN'] = userstore_mgrdn.decode('utf8')
+            formparams['USERSTORE_PASSWD'] = userstore_passwd.decode('utf8')
+
+            if (userstore_type is not 'LDAPv3ForADDC') or (userstore_type is 'LDAPv3ForADDC' and userstore_domainname is None):
+                formparams['USERSTORE_HOST'] = userstore_host.decode('utf8')
+                formparams['USERSTORE_PORT'] = userstore_port.decode('utf8')
+                formparams['USERSTORE_SUFFIX'] = userstore_suffix.decode('utf8')
+        else:
+            module.fail_json(msg='Not all parameters for user data store supplied')
+
+    if lb_primary_url is not None and lb_site_name is not None:
+        formparams['LB_SITE_NAME'] = lb_site_name
+        formparams['LB_PRIMARY_URL'] = lb_primary_url
+        formparams['LB_SESSION_HA_SFO'] = lb_session_ha_sfo
+    else:
+        module.fail_json(msg='both lb_site_name and lb_primary_url should be defined')
+
+    if data_store is 'embedded' and ds_emb_repl_flag is 'embReplFlag':
+        if ds_emb_repl_host2 is None or ds_emb_repl_adminport2 is None or \
+           ds_emb_repl_replport2 is None or ds_emb_repl_replport1 is None:
+            module.fail_json('Not all replication settings are given!')
+
+        formparams['DS_EMB_REPL_FLAG'] = ds_emb_repl_flag
+        formparams['DS_EMB_REPL_REPLPORT1'] = ds_emb_repl_replport1
+        formparams['DS_EMB_REPL_HOST2'] = ds_emb_repl_host2
+        formparams['DS_EMB_REPL_ADMINPORT2'] = ds_emb_repl_adminport2
+        formparams['DS_EMB_REPL_REPLPORT2'] = ds_emb_repl_replport2
+
+    body = urllib.urlencode(formparams)
+    openssourl = server_url.rstrip('/') + '/' + deployment_uri.lstrip('/').rstrip('/') + '/config/configurator'
+
+    try:
+        thread = ProgressThread( server_url.rstrip('/') + '/' + deployment_uri.lstrip('/').rstrip('/'), 'progress')
+        thread.start()
+    except:
+        module.fail_json(msg='Configuration failed, unable to start thread')
+
+    headers = {"Content-type": "application/x-www-form-urlencoded",
+               "Content-Length": len(body),
+               'cache-control': 'no-cache'}
+    response = requests.post(openssourl, data=body, headers=headers, stream=True)
+    response.close()
+
+    if response.status_code == requests.codes.ok:
+        module.exit_json(changed=True, msg=response.text)
+    else:
+        module.fail_json(msg='Configuration failed!' + response.text)
+
 main()
